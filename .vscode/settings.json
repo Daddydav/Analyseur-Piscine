@@ -1,0 +1,12 @@
+{
+    "C_Cpp.errorSquiggles": "disabled",
+<<<<<<< HEAD
+    "cmake.ignoreCMakeListsMissing": true
+=======
+<<<<<<< HEAD
+    "cmake.sourceDirectory": "D:/Profils/dao-narbonne/Documents/PlatformIO/Projects/Table_Magic_ESP32/lib/MCP23017_RT"
+=======
+    "cmake.sourceDirectory": "C:/Users/David/Documents/PlatformIO/Projects/Table_Magic_ESP32/lib/MCP23017_RT"
+>>>>>>> 2e1d2ccb12273c7a30c19586fd25f20809a7cc0b
+>>>>>>> d1089cf4b75162afc22fd86a460c34d6dacd1939
+}
