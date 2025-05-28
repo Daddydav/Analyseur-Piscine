@@ -50,9 +50,9 @@
     ],
     "repository": {
         "type": "git",
-        "url": "https://github.com/PaulStoffregen/OneWire"
+        "url": "https://github.com/mathieucarbou/OneWire"
     },
-    "version": "2.3.8",
+    "version": "2.3.9",
     "homepage": "https://www.pjrc.com/teensy/td_libs_OneWire.html",
     "frameworks": "Arduino",
     "examples": [
