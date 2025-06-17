@@ -47,6 +47,17 @@ Adafruit_SH1106G display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 #define kValue 1.8 //kValue = value of calibrator TDS / measurement to get TDS
 #define VREF 3.3 // analog reference voltage(Volt) of the ADC
 
+#define VOLTAGE 5.00    //system voltage
+#define OFFSET 0        //zero drift voltage
+
+double orpValue;
+
+#define ArrayLenth  40    //times of collection
+
+int orpArray[ArrayLenth];
+int orpArrayIndex=0;
+
+
 float averageVoltage = 0, temperature = 25;
 
 //// Initialisation de l'écran OLED
@@ -59,6 +70,46 @@ uint64_t readings[numReadings]; // Tableau pour stocker les lectures
 int readIndex = 0; // Index de la lecture actuelle
 uint64_t total = 0; // Total des lectures
 uint64_t averageTDS = 0; // Moyenne des lectures TDS
+
+double avergearray(int* arr, int number){
+  int i;
+  int max,min;
+  double avg;
+  long amount=0;
+  if(number<=0){
+    printf("Error number for the array to avraging!/n");
+    return 0;
+  }
+  if(number<5){   //less than 5, calculated directly statistics
+    for(i=0;i<number;i++){
+      amount+=arr[i];
+    }
+    avg = amount/number;
+    return avg;
+  }else{
+    if(arr[0]<arr[1]){
+      min = arr[0];max=arr[1];
+    }
+    else{
+      min=arr[1];max=arr[0];
+    }
+    for(i=2;i<number;i++){
+      if(arr[i]<min){
+        amount+=min;        //arr<min
+        min=arr[i];
+      }else {
+        if(arr[i]>max){
+          amount+=max;    //arr>max
+          max=arr[i];
+        }else{
+          amount+=arr[i]; //min<=arr<=max
+        }
+      }//if
+    }//for
+    avg = (double)amount/(number-2);
+  }//if
+  return avg;
+}
 
 
 void setup() {
@@ -124,10 +175,22 @@ void loop() {
   // Lire le pH
   int phValue = analogRead(PH_PIN);
   float ph = map(phValue, 0, 4095, 0, 1400) / 100.0; // Ajustez selon votre capteur
-
+  
   // Lire l'ORP
-  int orpValue = analogRead(ORP_PIN);
-  float orp = map(orpValue, 0, 4095, 0, 3300) / 1000.0; // Convertir en millivolts
+  static unsigned long orpTimer=millis();   //analog sampling interval
+  static unsigned long printTime=millis();
+  if(millis() >= orpTimer)
+  {
+    orpTimer=millis()+20;
+    orpArray[orpArrayIndex++]=analogRead(ORP_PIN);    //read an analog value every 20ms
+    if (orpArrayIndex==ArrayLenth) {
+      orpArrayIndex=0;
+    }   
+    orpValue=((30*(double)VOLTAGE*1000)-(75*avergearray(orpArray, ArrayLenth)*VOLTAGE*1000/1024))/75-OFFSET;   //convert the analog value to orp according the circuit
+  }
+  
+  //int orpValue = analogRead(ORP_PIN);
+  //float orp = map(orpValue, 0, 4095, 0, 3300) / 1000.0; // Convertir en millivolts
 
   // Afficher les résultats sur le moniteur série
   Serial.print("Température: ");
@@ -137,7 +200,7 @@ void loop() {
   Serial.print(" ppm, pH: ");
   Serial.print(ph);
   Serial.print(", ORP: ");
-  Serial.print(orp);
+  Serial.print(orpValue);
   Serial.println(" mV");
 
   // Afficher les résultats sur l'écran OLED
@@ -155,7 +218,7 @@ void loop() {
   display.print(ph);
   display.println("");
   display.print("ORP : ");
-  display.print(orp);
+  display.print(orpValue);
   display.println(" mV");
   display.print("Etat pompe : ");
   if (digitalRead(RELAY_PIN) == HIGH) {
