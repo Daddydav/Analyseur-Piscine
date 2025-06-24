@@ -8,69 +8,57 @@
 #include <SPI.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SH110X.h>  // Bibliothèque pour SH1106
-//#include <Adafruit_SSD1306.h>
 
-// Broche du capteur de température
-#define ONE_WIRE_BUS 4  // GPIO4
+float temperature = 25;
+#define ArrayLenth  10    //times of collection
 
-// Initialisation du capteur de température
-OneWire oneWire(ONE_WIRE_BUS);
+//Section Capteur de température
+#define ONE_WIRE_BUS 4  // GPIO4 - Broche du capteur de température
+OneWire oneWire(ONE_WIRE_BUS); // Initialisation du capteur de température
 DallasTemperature sensors(&oneWire);
+float tempC; // Température en degrés Celsius lue du capteur
 
-// Broche du capteur de conductivité
-#define TDS_PIN 34  // GPIO34
+// Section Relais
+#define RELAY_PIN 5  // GPIO5 - Broche du relais pour la pompe péristaltique
 
-// Broche du capteur de pH
-#define PH_PIN 35  // GPIO35
+// Section ORP
+#define ORP_PIN 36  // GPIO36 - Broche pour le capteur ORP
+double orpValue;
+int orpArray[ArrayLenth];
+int orpArrayIndex=0;
+static unsigned long orpTimer=millis();   //analog sampling interval
 
-// Broche du relais pour la pompe péristaltique
-#define RELAY_PIN 5  // GPIO5
-
-// Broche pour le capteur ORP
-#define ORP_PIN 36  // GPIO36
-
-// Définir les dimensions de l'écran OLED
-//#define SCREEN_WIDTH 128
-//#define SCREEN_HEIGHT 64
-
-// Définir les dimensions de l'écran OLED 1.3"
-#define SCREEN_WIDTH 128
+// Section Ecran
+#define SCREEN_WIDTH 128 // Définir les dimensions de l'écran OLED 1.3"
 #define SCREEN_HEIGHT 64
 #define OLED_RESET -1  // Reset pin not used
 #define OLED_ADDR 0x3C  // Adresse I2C (peut être 0x3C ou 0x3D)
+Adafruit_SH1106G display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET); // Initialisation de l'écran SH1106
 
-// Initialisation de l'écran SH1106
-//Adafruit_SH1106 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
-Adafruit_SH1106G display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+// Section pH
+#define PH_PIN 35  // GPIO35 - Broche du capteur de pH
+#define volt (float)avgval*5.0/1024/6.0 //voltage value of PH sensor
+int phValue; // Valeur brute lue du capteur de pH
+float ph; // Valeur de pH calculée à partir de la valeur brute
 
-
+// Section TDS
+#define TDS_PIN 34  // GPIO34 - Broche du capteur de conductivité
 #define kValue 1.8 //kValue = value of calibrator TDS / measurement to get TDS
 #define VREF 3.3 // analog reference voltage(Volt) of the ADC
+int tdsValue; // Valeur brute lue du capteur TDS
+uint64_t averagetds = 0; // Moyenne des lectures TDS
+uint64_t tdsarray[ArrayLenth]; // Tableau pour stocker les lectures
+int tdsIndex = 0; // Index de la lecture actuelle
+uint64_t tdstotal = 0; // Total des lectures
+float averageVoltds = 0; // Moyenne des tensions lues
+float compCoeftds; // Coefficient de compensation de température
+float compVolttds; // Tension compensée pour la température
+float tdsPPM; // Valeur TDS en PPM
 
 #define VOLTAGE 5.00    //system voltage
 #define OFFSET 0        //zero drift voltage
 
-double orpValue;
-
-#define ArrayLenth  40    //times of collection
-
-int orpArray[ArrayLenth];
-int orpArrayIndex=0;
-
-
-float averageVoltage = 0, temperature = 25;
-
-//// Initialisation de l'écran OLED
-////Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
-
-
-// Variables pour le filtrage des lectures TDS
-const int numReadings = 10; // Nombre de lectures pour le filtrage
-uint64_t readings[numReadings]; // Tableau pour stocker les lectures
-int readIndex = 0; // Index de la lecture actuelle
-uint64_t total = 0; // Total des lectures
-uint64_t averageTDS = 0; // Moyenne des lectures TDS
-
+// Sous fonction pour calculer la moyenne d'un tableau
 double avergearray(int* arr, int number){
   int i;
   int max,min;
@@ -111,21 +99,35 @@ double avergearray(int* arr, int number){
   return avg;
 }
 
+float Lire_TDS() {
+  // Lire la valeur brute du capteur TDS
+  tdsValue = analogRead(TDS_PIN);
+  
+  // Appliquer le filtrage
+  tdstotal = tdstotal - tdsarray[tdsIndex];
+  tdsarray[tdsIndex] = tdsValue;
+  tdstotal = tdstotal + tdsarray[tdsIndex];
+  tdsIndex = tdsIndex + 1;
+
+  if (tdsIndex >= ArrayLenth) {
+    tdsIndex = 0;
+  }
+
+  averagetds = (tdstotal / ArrayLenth) * (float)VREF / 4095.0; // Convertir la moyenne en tension (0-3.3V pour ESP32 ADC)
+  averageVoltds = map(tdsValue, 0, 4095, 0, 1000); // Convertir la moyenne en tension (0-3.3V pour ESP32 ADC)
+  
+  compCoeftds = 1.0 + 0.02 * (tempC - 25.0); // Formule de compensation de température
+  compVolttds = averagetds / compCoeftds; // Compensé par le coefficient de compensation de température
+  tdsPPM = ((133.42 * compVolttds * compVolttds * compVolttds) - (255.86 * compVolttds * compVolttds) + (857.39 * compVolttds)) * 0.5 * kValue; // Convertir la tension en PPM
+
+  return tdsPPM;
+}
 
 void setup() {
   Serial.begin(115200);
   sensors.begin();
   pinMode(RELAY_PIN, OUTPUT);
   digitalWrite(RELAY_PIN, LOW); // Assurez-vous que la pompe est éteinte au démarrage
-
-  // Initialiser l'écran OLED
-  //if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) { // Adresse I2C 0x3C pour 128x64
-  //  Serial.println(F("Échec de l'initialisation de l'écran SSD1306"));
-  //  for(;;);
-  //}
-  //display.display();
-  //delay(2000);
-  //display.clearDisplay();
 
   // Initialiser l'écran SH1106
   if(!display.begin(OLED_ADDR, true)) { // true pour indiquer que c'est un SH1106
@@ -139,46 +141,27 @@ void setup() {
   display.setTextSize(1);
   display.setTextColor(SH110X_WHITE);
 
-
   // Initialiser le tableau de lectures TDS
-  for (int thisReading = 0; thisReading < numReadings; thisReading++) {
-    readings[thisReading] = 0;
+  for (int thisReading = 0; thisReading < ArrayLenth; thisReading++) {
+    tdsarray[thisReading] = 0;
   }
 }
 
 void loop() {
   // Lire la température
   sensors.requestTemperatures();
-  float tempC = sensors.getTempCByIndex(0);
+  tempC = sensors.getTempCByIndex(0);
 
   // Lire le TDS
-  int tdsValue = analogRead(TDS_PIN);
-
-  // Appliquer le filtrage
-  total = total - readings[readIndex];
-  readings[readIndex] = tdsValue;
-  total = total + readings[readIndex];
-  readIndex = readIndex + 1;
-
-  if (readIndex >= numReadings) {
-    readIndex = 0;
-  }
-
-  averageTDS = (total / numReadings)  * (float)VREF / 4095.0; // Convertir la moyenne en tension (0-3.3V pour ESP32 ADC)
-  averageVoltage = map(tdsValue, 0, 4095, 0, 1000);; // Convertir la moyenne en tension (0-3.3V pour ESP32 ADC)
-  //float tdsPPM = map(averageTDS, 0, 4095, 0, 1000); // Convertir en ppm (ajustez selon votre capteur)
-
-  float compensationCoefficient = 1.0+0.02*(tempC-25.0); //temperature compensation formula: fFinalResult(25^C) = fFinalResult(current)/(1.0+0.02*(fTP-25.0));
-  float compensationVolatge = averageTDS/compensationCoefficient; //temperature compensation
-  float tdsPPM = ((133.42*compensationVolatge*compensationVolatge*compensationVolatge) - (255.86*compensationVolatge*compensationVolatge) + (857.39*compensationVolatge))*0.5*kValue; //convert voltage value to tds value
+  tdsPPM = Lire_TDS(); // Convertir la tension en PPM
 
   // Lire le pH
-  int phValue = analogRead(PH_PIN);
-  float ph = map(phValue, 0, 4095, 0, 1400) / 100.0; // Ajustez selon votre capteur
+  phValue = analogRead(PH_PIN);
+  float ph = phValue * ((float)VREF / 4095);
   
   // Lire l'ORP
-  static unsigned long orpTimer=millis();   //analog sampling interval
-  static unsigned long printTime=millis();
+  
+  //static unsigned long printTime=millis();
   if(millis() >= orpTimer)
   {
     orpTimer=millis()+20;
@@ -186,7 +169,7 @@ void loop() {
     if (orpArrayIndex==ArrayLenth) {
       orpArrayIndex=0;
     }   
-    orpValue=((30*(double)VOLTAGE*1000)-(75*avergearray(orpArray, ArrayLenth)*VOLTAGE*1000/1024))/75-OFFSET;   //convert the analog value to orp according the circuit
+    orpValue=((30*(double)VOLTAGE*1000)-(75*avergearray(orpArray, ArrayLenth)*VOLTAGE*1000/4095))/75-OFFSET;   //convert the analog value to orp according the circuit
   }
   
   //int orpValue = analogRead(ORP_PIN);
@@ -227,11 +210,11 @@ void loop() {
     display.println("OFF");
   }
   display.print("compCoef : ");
-  display.println(compensationCoefficient);
+  display.println(compCoeftds);
   display.print("compVolt : ");
-  display.println(compensationVolatge);
+  display.println(compVolttds);
   display.print("Voltage : ");
-  display.println(averageVoltage);
+  display.println(averageVoltds);
   display.display();
 
 
@@ -245,5 +228,5 @@ void loop() {
     Serial.println("Pompe éteinte");
   }
 
-  delay(1000);
+  //delay(1000);
 }
