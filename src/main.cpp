@@ -193,7 +193,7 @@ void loop() {
   display.setCursor(0, 0);
   display.print("Temp : ");
   display.print(tempC);
-  display.println(" °C");
+  display.println(" C");
   display.print("TDS : ");
   display.print(tdsPPM);
   display.println(" ppm");
