@@ -22,7 +22,7 @@ float tempC; // Température en degrés Celsius lue du capteur
 #define RELAY_PIN 5  // GPIO5 - Broche du relais pour la pompe péristaltique
 
 // Section ORP
-#define ORP_PIN 36  // GPIO36 - Broche pour le capteur ORP
+#define ORP_PIN 33  // GPIO33 - Broche pour le capteur ORP
 double orpValue;
 int orpArray[ArrayLenth];
 int orpArrayIndex=0;
