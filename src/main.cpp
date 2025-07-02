@@ -22,7 +22,7 @@ float tempC; // Température en degrés Celsius lue du capteur
 #define RELAY_PIN 5  // GPIO5 - Broche du relais pour la pompe péristaltique
 
 // Section ORP
-#define ORP_PIN 33  // GPIO33 - Broche pour le capteur ORP
+#define ORP_PIN 35  // GPIO35 - Broche pour le capteur ORP
 double orpValue;
 int orpArray[ArrayLenth];
 int orpArrayIndex=0;
@@ -35,11 +35,23 @@ static unsigned long orpTimer=millis();   //analog sampling interval
 #define OLED_ADDR 0x3C  // Adresse I2C (peut être 0x3C ou 0x3D)
 Adafruit_SH1106G display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET); // Initialisation de l'écran SH1106
 
+// Section rebel pH
+float calibration_value = 3.42;
+int phval = 0; 
+unsigned long int avgval; 
+int buffer_arr[10],temp;
+float ph_act, volt;
+
 // Section pH
-#define PH_PIN 35  // GPIO35 - Broche du capteur de pH
-#define volt (float)avgval*5.0/1024/6.0 //voltage value of PH sensor
+#define PH_PIN 33  // GPIO33 - Broche du capteur de pH
+//#define volt (float)avgval*5.0/1024/6.0 //voltage value of PH sensor
 int phValue; // Valeur brute lue du capteur de pH
 float ph; // Valeur de pH calculée à partir de la valeur brute
+uint64_t averagePH = 0; // Moyenne des lectures pH
+uint64_t PHarray[ArrayLenth]; // Tableau pour stocker les lectures
+int PHIndex = 0; // Index de la lecture actuelle
+uint64_t PHtotal = 0; // Total des lectures
+uint32_t tensionMilliVolts = 0; // Tension en millivolts lue du capteur pH
 
 // Section TDS
 #define TDS_PIN 34  // GPIO34 - Broche du capteur de conductivité
@@ -123,6 +135,25 @@ float Lire_TDS() {
   return tdsPPM;
 }
 
+
+float Lire_PH() {
+  // Lire la valeur brute du capteur pH
+  uint32_t tensionMilliVolts2 = analogRead(PH_PIN) * (VOLTAGE / 4095) * 1000;
+
+  // Appliquer le filtrage
+  PHtotal = PHtotal - PHarray[PHIndex];
+  PHarray[PHIndex] = tensionMilliVolts2; // Stocker la tension lue dans le tableau
+  PHtotal = PHtotal + PHarray[PHIndex];
+  PHIndex = PHIndex + 1;
+
+  if (PHIndex >= ArrayLenth) {
+    PHIndex = 0;
+  }
+
+  averagePH = (PHtotal / ArrayLenth); // Convertir la moyenne en tension
+  return averagePH;
+}
+
 void setup() {
   Serial.begin(115200);
   sensors.begin();
@@ -141,9 +172,10 @@ void setup() {
   display.setTextSize(1);
   display.setTextColor(SH110X_WHITE);
 
-  // Initialiser le tableau de lectures TDS
+  // Initialiser le tableau de lectures TDS/PH
   for (int thisReading = 0; thisReading < ArrayLenth; thisReading++) {
     tdsarray[thisReading] = 0;
+    PHarray[thisReading] = 0;
   }
 }
 
@@ -156,12 +188,34 @@ void loop() {
   tdsPPM = Lire_TDS(); // Convertir la tension en PPM
 
   // Lire le pH
-  phValue = analogRead(PH_PIN);
-  float ph = phValue * ((float)VREF / 4095);
-  
+  tensionMilliVolts =  Lire_PH();
+  ph = map(tensionMilliVolts, 3480, 4260, 9180, 6864) / 1000.0;
+
+  // ph rebel
+  for(int i=0;i<10;i++) { 
+    buffer_arr[i]=analogRead(PH_PIN);
+    delay(30);
+  }
+  for(int i=0;i<9;i++){
+    for(int j=i+1;j<10;j++){
+      if(buffer_arr[i]>buffer_arr[j]) {
+        temp=buffer_arr[i];
+        buffer_arr[i]=buffer_arr[j];
+        buffer_arr[j]=temp;
+      }
+    }
+  }
+  avgval=0;
+  for(int i=2;i<8;i++) {
+      avgval+=buffer_arr[i];
+  }
+  volt=(float)avgval * VOLTAGE/4095/6;
+  //ph_act = -5.706 + (25.106 * volt) - (26.106 * volt * volt) + (9.6 * volt * volt * volt); // Calculation to convert voltage to pH
+  ph_act = (0.0178 * volt * 200.0) -1.889;
+  //ph_act = volt + calibration_value;
+
   // Lire l'ORP
-  
-  //static unsigned long printTime=millis();
+    //static unsigned long printTime=millis();
   if(millis() >= orpTimer)
   {
     orpTimer=millis()+20;
@@ -193,7 +247,7 @@ void loop() {
   display.setCursor(0, 0);
   display.print("Temp : ");
   display.print(tempC);
-  display.println(" °C");
+  display.println(" C");
   display.print("TDS : ");
   display.print(tdsPPM);
   display.println(" ppm");
@@ -209,12 +263,15 @@ void loop() {
   } else {
     display.println("OFF");
   }
-  display.print("compCoef : ");
-  display.println(compCoeftds);
-  display.print("compVolt : ");
-  display.println(compVolttds);
-  display.print("Voltage : ");
-  display.println(averageVoltds);
+  //display.print("compCoef : ");
+  //display.println(compCoeftds);
+  //display.print("compVolt : ");
+  //display.println(compVolttds);
+  display.print("Voltage1 : ");
+  display.print(tensionMilliVolts);
+  display.println(" mV");
+  display.print("Ph rebel : ");
+  display.println(ph_act);
   display.display();
 
 
@@ -228,5 +285,5 @@ void loop() {
     Serial.println("Pompe éteinte");
   }
 
-  //delay(1000);
+  delay(100);
 }
